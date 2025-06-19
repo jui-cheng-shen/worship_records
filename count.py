@@ -37,14 +37,14 @@ conn.commit()
 record = []
 
 win =tk.Tk()
-win.geometry("500x500")
+win.geometry("550x500")
 win.title("聚會記錄系統")
 
 group = tk.LabelFrame(win, text="請輸入資料", padx=10, pady=10)
 group.pack(padx=10, pady=10)
 
 labels = [
-    "日期(MM/DD)", "星期", "主題", "讚美詩1", "讚美詩2", "弟兄人數", "姊妹人數", "慕道者人數", "總人數"
+    "日期(MM/DD)", "星期", "主題", "讚美詩1", "讚美詩2", "主領", "翻譯","弟兄人數", "姊妹人數", "慕道者人數", "總人數"
 ]
 
 
@@ -88,13 +88,13 @@ def add_record():
         return
 
     try:
-        brother = int(data[5])
-        sister = int(data[6])
-        seeker = int(data[7])
+        brother = int(data[7])
+        sister = int(data[8])
+        seeker = int(data[9])
         total = brother + sister + seeker
-        data[8] = str(total)
-        entries[8].delete(0, tk.END)
-        entries[8].insert(0, str(total))
+        data[10] = str(total)
+        entries[10].delete(0, tk.END)
+        entries[10].insert(0, str(total))
     except ValueError:
         messagebox.showerror("date error", "people must input int")
         return
