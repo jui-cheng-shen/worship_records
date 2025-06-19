@@ -18,6 +18,10 @@ if not os.path.exists(filename):
 
 conn = sqlite3.connect(year + ' record.db')
 database = conn.cursor()
+
+database.execute("PRAGMA table_info(record)")
+columns = [col[1] for col in database.fetchall()] # 作用是獲取表格的列名
+
 database.execute('''
     CREATE TABLE IF NOT EXISTS record (
         date TEXT,
@@ -25,12 +29,26 @@ database.execute('''
         topic TEXT,
         hymn1 TEXT,
         hymn2 TEXT,
+        leader TEXT,
+        translator TEXT,
         brother INTEGER,
         sister INTEGER,
         seeker INTEGER,
         total INTEGER
     )
 ''')
+
+if columns and 'leader' not in columns:
+    try:
+        database.execute("ALTER TABLE record ADD COLUMN leader TEXT")
+    except:
+        pass
+
+if columns and 'translator' not in columns:
+    try:
+        database.execute("ALTER TABLE record ADD COLUMN translator TEXT")
+    except:
+        pass
 conn.commit()
 
 
@@ -44,7 +62,7 @@ group = tk.LabelFrame(win, text="請輸入資料", padx=10, pady=10)
 group.pack(padx=10, pady=10)
 
 labels = [
-    "日期(MM/DD)", "星期", "主題", "讚美詩1", "讚美詩2", "主領", "翻譯","弟兄人數", "姊妹人數", "慕道者人數", "總人數"
+    "日期(MM/DD)", "星期", "主題", "讚美詩1", "讚美詩2", "主領", "翻譯", "弟兄人數", "姊妹人數", "慕道者人數", "總人數"
 ]
 
 
@@ -120,7 +138,7 @@ def store_record():
         if month_name not in wb.sheetnames:
             ws = wb.create_sheet(title=month_name)
             headers = [
-                "日期", "星期", "主題", "讚美詩1", "讚美詩2", "弟兄人數", "姊妹人數", "慕道者人數", "總人數"
+            "日期(MM/DD)", "星期", "主題", "讚美詩1", "讚美詩2", "主領", "翻譯", "弟兄人數", "姊妹人數", "慕道者人數", "總人數"
             ]
             ws.append(headers)
         else:
@@ -136,11 +154,10 @@ def store_record():
         wb.save(filename)
 
     database.execute('''
-        INSERT INTO record (date, week, topic, hymn1, hymn2, brother, sister, seeker, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO record (date, week, topic, hymn1, hymn2, leader, translator, brother, sister, seeker, total)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', values)
     conn.commit()
-
 btn = tk.Button(win, text = "儲存", command=add_record)
 btn.pack(pady=10)
 
