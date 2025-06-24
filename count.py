@@ -231,38 +231,31 @@ def store_data(data):
     auto_fix_record(last_id)
 
 def auto_fix_record(record_id):
-    """自動修正單筆資料的欄位錯誤問題"""
+    """只修正舊資料欄位錯位，不自動推斷或覆蓋時間段內容"""
     try:
         database.execute("SELECT * FROM count WHERE id = ?", (record_id,))
         record = database.fetchone()
-
         if not record:
             return
 
         meeting_type = record[2]
+        # 只修正舊資料（星期誤存於 meeting_type）
         if meeting_type in ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]:
             week = meeting_type
-            actual_meeting_type = record[3]
+            actual_meeting_type = record[3]  # 舊資料的 time_period 欄位其實是聚會類別
+            time_period = record[4] if record[4] in ["上午", "下午", "晚上"] else record[3]  # 嘗試從 week 欄位找時間段，否則保留原本
 
-            database.execute("SELECT * FROM count WHERE id = ?", (record_id,))
-            updated_record = database.fetchone()
-
-            if actual_meeting_type in ["晚間聚會", "佈道會", "團契聚會"]:
-                correct_time_period = "晚上"
-            elif actual_meeting_type == "安息日聚會":
-                correct_time_period = "下午"
-
-            # 修正資料庫中的記錄
+            # 只修正 meeting_type、time_period、week 三個欄位的位置，不推斷內容
             database.execute("""
                 UPDATE count
                 SET meeting_type = ?,
                     time_period = ?,
                     week = ?
                 WHERE id = ?
-            """, (actual_meeting_type, correct_time_period, week, record_id))
-
+            """, (actual_meeting_type, time_period, week, record_id))
             conn.commit()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        print(f"資料庫錯誤: {str(e)}")
         conn.rollback()
 
 btn_frame = tk.Frame(input_tab)
