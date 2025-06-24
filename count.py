@@ -9,6 +9,9 @@ db_filename = "DALIN_TJC_record.db"
 conn = sqlite3.connect(db_filename)
 database = conn.cursor()
 
+# 新增全域變數
+current_record_id = None
+
 database.execute('''CREATE TABLE IF NOT EXISTS count (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT,
@@ -165,7 +168,6 @@ entries[12].bind("<KeyRelease>", calculate_total)
 generate_week()
 
 def save_record():
-    # 獲取所有輸入值，特別處理Text控件
     data = []
     for entry in entries:
         if isinstance(entry, tk.Text):
@@ -231,7 +233,6 @@ def store_data(data):
 def auto_fix_record(record_id):
     """自動修正單筆資料的欄位錯誤問題"""
     try:
-
         database.execute("SELECT * FROM count WHERE id = ?", (record_id,))
         record = database.fetchone()
 
@@ -240,17 +241,25 @@ def auto_fix_record(record_id):
 
         meeting_type = record[2]
         if meeting_type in ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]:
-            week = meeting_type       # 目前存在meeting_type欄位的星期值
-            meeting_type = record[3]  # 目前存在time_period欄位的聚會類別
+            week = meeting_type
+            actual_meeting_type = record[3]
 
-            # 修正資料結構
+            database.execute("SELECT * FROM count WHERE id = ?", (record_id,))
+            updated_record = database.fetchone()
+
+            if actual_meeting_type in ["晚間聚會", "佈道會", "團契聚會"]:
+                correct_time_period = "晚上"
+            elif actual_meeting_type == "安息日聚會":
+                correct_time_period = "下午"
+
+            # 修正資料庫中的記錄
             database.execute("""
                 UPDATE count
                 SET meeting_type = ?,
                     time_period = ?,
                     week = ?
                 WHERE id = ?
-            """)
+            """, (actual_meeting_type, correct_time_period, week, record_id))
 
             conn.commit()
     except sqlite3.Error:
@@ -462,7 +471,7 @@ def calculate_stats(results):
             combined_stats["total_seekers"] += row[15]
             combined_stats["total"] += row[16]
 
-    stats_text = "統計結果:\n\n"
+    stats_text = "\n"
 
     # 如果有勾選聚會類別且有資料，顯示合併統計結果
     if selected_types and combined_stats["count"] > 0:
@@ -563,35 +572,95 @@ def load_record():
         messagebox.showerror("錯誤", "日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
         return
 
-    database.execute("SELECT * FROM count WHERE date = ?", (parsed_date,))
-    record = database.fetchone()
 
-    if not record:
+    database.execute("SELECT * FROM count WHERE date = ?", (parsed_date,))
+    records = database.fetchall()
+
+    if not records:
         messagebox.showerror("錯誤", "沒有找到該日期的聚會記錄")
         return
 
-    for i in range(len(revise_entries)):
-        if isinstance(revise_entries[i], tk.Text):
-            revise_entries[i].delete("1.0", tk.END)
-            if i == 16:  # 備註欄位
-                revise_entries[i].insert("1.0", record[17] if record[17] else "")
-        else:  # Entry 或 Combobox
-            revise_entries[i].delete(0, tk.END)
-            if i < len(record) - 1:  # 確保索引有效
-                revise_entries[i].insert(0, record[i + 1] if record[i + 1] else "")
+    if len(records) > 1:
+        select_window = tk.Toplevel(win)
+        select_window.title("選擇聚會場次")
+        select_window.geometry("400x300")
+        select_window.transient(win)
+        select_window.grab_set()
+
+        tk.Label(select_window, text="此日期有多場聚會，請選擇要修改的場次:").pack(pady=10)
+
+        record_listbox = tk.Listbox(select_window, width=50, height=10)
+        record_listbox.pack(fill="both", expand=True, padx=10, pady=5)
+
+        for i, record in enumerate(records):
+            record_listbox.insert(tk.END, f"{record[2]} ({record[3]}) - 主領: {record[8]}")
+
+        def on_select():
+            try:
+                idx = record_listbox.curselection()[0]
+                fill_revision_form(records[idx])
+                select_window.destroy()
+            except IndexError:
+                messagebox.showerror("錯誤", "請選擇一個場次")
+
+        tk.Button(select_window, text="選擇", command=on_select).pack(pady=10)
+
+        return
+    else:
+        fill_revision_form(records[0])
+
+def fill_revision_form(record):
+    """填充修改表單的輔助函數"""
+    global current_record_id
+
+    for entry in revise_entries:
+        if isinstance(entry, tk.Text):
+            entry.delete("1.0", tk.END)
+        elif isinstance(entry, tk.Entry) or isinstance(entry, ttk.Combobox):
+            entry.delete(0, tk.END)
+
+    field_mapping = {
+        0: 1,   # 日期 -> record[1]
+        1: 4,   # 星期 -> record[4]
+        2: 2,   # 聚會類別 -> record[2]
+        3: 3,   # 時間段 -> record[3]
+        4: 5,   # 主題 -> record[5]
+        5: 6,   # 讚美詩1 -> record[6]
+        6: 7,   # 讚美詩2 -> record[7]
+        7: 8,   # 主領 -> record[8]
+        8: 9,   # 翻譯 -> record[9]
+        9: 10,  # 弟兄人數 -> record[10]
+        10: 11, # 姊妹人數 -> record[11]
+        11: 12, # 慕道者(男) -> record[12]
+        12: 13, # 慕道者(女) -> record[13]
+        13: 14, # 主內總人數 -> record[14]
+        14: 15, # 慕道者總人數 -> record[15]
+        15: 16, # 總人數 -> record[16]
+        16: 17  # 備註 -> record[17]
+    }
+
+    global current_record_id
+    current_record_id = record[0]
+
+    for form_index, db_index in field_mapping.items():
+        if form_index >= len(revise_entries):
+            continue
+
+        value = record[db_index] if db_index < len(record) else ""
+        if value is None:
+            value = ""
+
+        if isinstance(revise_entries[form_index], tk.Text):
+            revise_entries[form_index].insert("1.0", value)
+        else:
+            revise_entries[form_index].insert(0, value)
 
 load_button = tk.Button(revise_group, text="載入記錄", command=load_record)
 load_button.grid(row=0, column=2, padx=5, pady=5)
 
 def update_record():
-    date_str = revise_date_entry.get().strip()
-    try:
-        try:
-            parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
-        except ValueError:
-            parsed_date = datetime.datetime.strptime(date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
-    except ValueError:
-        messagebox.showerror("錯誤", "日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
+    if current_record_id is None:
+        messagebox.showerror("錯誤", "請先載入要修改的記錄")
         return
 
     new_data = []
@@ -618,58 +687,45 @@ def update_record():
         hymn1=?, hymn2=?, leader=?, translator=?,
         brother=?, sister=?, male_seeker=?, female_seeker=?,
         total_believer=?, total_seeker=?, total=?, remarks=?
-        WHERE date=? '''
+        WHERE id=? '''
 
-    database.execute(sql, (*new_data, parsed_date))
+    database.execute(sql, (*new_data, current_record_id))
     conn.commit()
 
-    # 獲取更新記錄的ID
-    database.execute("SELECT id FROM count WHERE date = ?", (new_data[0],))
-    record_id = database.fetchone()[0]
-
-    # 自動修復更新的記錄
-    auto_fix_record(record_id)
+    auto_fix_record(current_record_id)
 
     messagebox.showinfo("成功", "聚會記錄已更新")
 
-update_button = tk.Button(revise_group, text = "更新" , command=update_record)
-update_button.grid(row=0, column=3 , padx=5, pady=5)
-
 def delete_record():
-    date_str = revise_date_entry.get().strip()
-    if not date_str:
-        messagebox.showerror("錯誤", "請輸入要刪除的聚會紀錄日期")
+    global current_record_id
+
+    if current_record_id is None:
+        messagebox.showerror("錯誤", "請先載入要刪除的記錄")
         return
 
-    try:
-        try:
-            parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
-        except ValueError:
-            parsed_date = datetime.datetime.strptime(date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
-    except ValueError:
-        messagebox.showerror("錯誤", "日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
-        return
-
-    database.execute("SELECT * FROM count WHERE date = ?", (parsed_date,))
+    database.execute("SELECT * FROM count WHERE id = ?", (current_record_id,))
     record = database.fetchone()
 
     if not record:
-        messagebox.showerror("錯誤", "沒有找到該日期的聚會記錄")
+        messagebox.showerror("錯誤", "找不到要刪除的記錄")
         return
 
-    confirm = messagebox.askyesno("確認刪除", f"確定要刪除 {parsed_date} ({record[4]}) 的 {record[2]} 聚會記錄嗎？\n此操作無法復原。")
+    confirm = messagebox.askyesno("確認刪除",  f"確定要刪除 {record[1]} ({record[4]}) 的 {record[2]} {record[3]} 聚會記錄嗎？\n此操作無法復原。")
 
     if not confirm:
         return
 
     try:
-        database.execute("DELETE FROM count WHERE date = ?", (parsed_date,))
+        database.execute("DELETE FROM count WHERE id = ?", (current_record_id,))
         conn.commit()
         messagebox.showinfo("成功", "聚會記錄已刪除")
 
+        current_record_id = None
         revise_date_entry.delete(0, tk.END)
         for entry in revise_entries:
-            if isinstance(entry, tk.Entry):
+            if isinstance(entry, tk.Text):
+                entry.delete("1.0", tk.END)
+            elif isinstance(entry, tk.Entry):
                 entry.delete(0, tk.END)
             elif isinstance(entry, ttk.Combobox):
                 entry.set('')
@@ -681,8 +737,9 @@ def delete_record():
 delete_button = tk.Button(revise_group, text="刪除", command=delete_record,bg="#ff6b6b", fg="white")
 delete_button.grid(row=0, column=4, padx=5, pady=5)
 
+update_button = tk.Button(revise_group, text="更新", command=update_record, bg="#4CAF50", fg="white")
+update_button.grid(row=0, column=3, padx=5, pady=5)
 
-tk.Label(revise_group,)
 
 
 win.mainloop()
