@@ -26,7 +26,7 @@ database.execute('''CREATE TABLE IF NOT EXISTS count (
         female_seeker INTEGER,
         total_believer INTEGER,
         total_seeker INTEGER,
-        total INTEGER
+        total INTEGER,
         remarks TEXT DEFAULT ''
     )
 ''')
@@ -34,6 +34,16 @@ database.execute('''CREATE TABLE IF NOT EXISTS count (
 database.execute("PRAGMA table_info(count)")
 columns = [col[1] for col in database.fetchall()]
 conn.commit()
+
+
+try:
+    database.execute("ALTER TABLE count ADD COLUMN remarks TEXT DEFAULT ''")
+    conn.commit()
+    print("已成功添加備註欄位")
+except sqlite3.Error:
+    # 如果欄位已存在，忽略錯誤
+    conn.rollback()
+    pass
 
 win = tk.Tk()
 win.title("DALIN TJC RECORD")
@@ -240,7 +250,7 @@ def auto_fix_record(record_id):
                     time_period = ?,
                     week = ?
                 WHERE id = ?
-            """, (meeting_type, "晚上", week, record_id))
+            """)
 
             conn.commit()
     except sqlite3.Error:
