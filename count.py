@@ -233,7 +233,9 @@ btn_frame = tk.Frame(input_tab)
 btn_frame.pack(fill="x",pady=10)
 
 save_batton = tk.Button(btn_frame, text="儲存", command=save_record)
-save_batton.pack(side="left", padx=5)
+save_batton.pack(side="left", padx=10, ipadx=20, ipady=10)
+save_batton.bind("<Return>", lambda event: save_record())
+save_batton.config(takefocus=1)
 
 query_group= tk.LabelFrame(query_tab, text="查詢聚會記錄", padx=10, pady=10)
 query_group.pack(fill="x", padx=10, pady=10)
@@ -306,8 +308,7 @@ stats_text_frame.pack(fill="both", expand=True)
 stats_scrollbar = tk.Scrollbar(stats_text_frame)
 stats_scrollbar.pack(side="right", fill="y")
 
-stats_text_widget = tk.Text(stats_text_frame, height=8, yscrollcommand=stats_scrollbar.set, 
-                            relief="sunken", borderwidth=1)
+stats_text_widget = tk.Text(stats_text_frame, height=8, yscrollcommand=stats_scrollbar.set, relief="sunken", borderwidth=1)
 stats_text_widget.pack(side="left", fill="both", expand=True)
 stats_scrollbar.config(command=stats_text_widget.yview)
 
@@ -391,6 +392,17 @@ def search_record(use_filters=True):
 
 def calculate_stats(results):
     stats = {}
+    # 為已勾選的聚會類別準備合併統計資料
+    selected_types = [typ for typ, var in query_type_vars.items() if var.get()]
+    combined_stats = {
+        "count": 0,
+        "brothers": 0,
+        "sisters": 0,
+        "total_believers": 0,
+        "total_seekers": 0,
+        "total": 0
+    }
+
     for row in results:
         meeting_type = row[2]
         if meeting_type not in stats:
@@ -409,7 +421,34 @@ def calculate_stats(results):
         stats[meeting_type]["total_seekers"] += row[15]
         stats[meeting_type]["total"] += row[16]
 
+        # 如果此類別是已勾選的，則加入合併統計
+        if meeting_type in selected_types:
+            combined_stats["count"] += 1
+            combined_stats["brothers"] += row[10]
+            combined_stats["sisters"] += row[11]
+            combined_stats["total_believers"] += row[14]
+            combined_stats["total_seekers"] += row[15]
+            combined_stats["total"] += row[16]
+
     stats_text = "統計結果:\n\n"
+
+    # 如果有勾選聚會類別且有資料，顯示合併統計結果
+    if selected_types and combined_stats["count"] > 0:
+        avg_brothers = combined_stats["brothers"] / combined_stats["count"]
+        avg_sisters = combined_stats["sisters"] / combined_stats["count"]
+        avg_total_believers = combined_stats["total_believers"] / combined_stats["count"]
+        avg_total_seekers = combined_stats["total_seekers"] / combined_stats["count"]
+        avg_total = combined_stats["total"] / combined_stats["count"]  # 這行原本缺少了
+
+        selected_types_str = ", ".join(selected_types)
+        stats_text += f"【已勾選聚會類別】({selected_types_str}) 合併統計 :\n"
+        stats_text += f"平均弟兄人數: {avg_brothers:.2f}\n"
+        stats_text += f"平均姊妹人數: {avg_sisters:.2f}\n"
+        stats_text += f"平均主內總人數: {avg_total_believers:.2f}\n"
+        stats_text += f"平均慕道者總人數: {avg_total_seekers:.2f}\n"
+        stats_text += f"平均總人數: {avg_total:.2f}\n\n"
+
+
     for meeting_type, data in stats.items():
         avg_brothers = data["brothers"] / data["count"] if data["count"] > 0 else 0
         avg_sisters = data["sisters"] / data["count"] if data["count"] > 0 else 0
@@ -417,12 +456,13 @@ def calculate_stats(results):
         avg_total_seekers = data["total_seekers"] / data["count"] if data["count"] > 0 else 0
         avg_total = data["total"] / data["count"] if data["count"] > 0 else 0
 
-        stats_text += f"{meeting_type} (共{data['count']}次):\n"
+        stats_text += f"{meeting_type} :\n"
         stats_text += f"平均弟兄人數: {avg_brothers:.2f}\n"
         stats_text += f"平均姊妹人數: {avg_sisters:.2f}\n"
         stats_text += f"平均主內總人數: {avg_total_believers:.2f}\n"
         stats_text += f"平均慕道者總人數: {avg_total_seekers:.2f}\n"
         stats_text += f"平均總人數: {avg_total:.2f}\n\n"
+
     return stats_text
 
 def show_stats_window(stats_text):
@@ -550,6 +590,51 @@ def update_record():
 update_button = tk.Button(revise_group, text = "更新" , command=update_record)
 update_button.grid(row=0, column=3 , padx=5, pady=5)
 
+def delete_record():
+    date_str = revise_date_entry.get().strip()
+    if not date_str:
+        messagebox.showerror("錯誤", "請輸入要刪除的聚會紀錄日期")
+        return
+
+    try:
+        try:
+            parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            parsed_date = datetime.datetime.strptime(date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
+    except ValueError:
+        messagebox.showerror("錯誤", "日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
+        return
+
+    database.execute("SELECT * FROM count WHERE date = ?", (parsed_date,))
+    record = database.fetchone()
+
+    if not record:
+        messagebox.showerror("錯誤", "沒有找到該日期的聚會記錄")
+        return
+
+    confirm = messagebox.askyesno("確認刪除", f"確定要刪除 {parsed_date} ({record[4]}) 的 {record[2]} 聚會記錄嗎？\n此操作無法復原。")
+
+    if not confirm:
+        return
+
+    try:
+        database.execute("DELETE FROM count WHERE date = ?", (parsed_date,))
+        conn.commit()
+        messagebox.showinfo("成功", "聚會記錄已刪除")
+
+        revise_date_entry.delete(0, tk.END)
+        for entry in revise_entries:
+            if isinstance(entry, tk.Entry):
+                entry.delete(0, tk.END)
+            elif isinstance(entry, ttk.Combobox):
+                entry.set('')
+    except sqlite3.Error as e:
+        conn.rollback()
+        messagebox.showerror("錯誤", f"刪除記錄時發生錯誤: {str(e)}")
+
+
+delete_button = tk.Button(revise_group, text="刪除", command=delete_record,bg="#ff6b6b", fg="white")
+delete_button.grid(row=0, column=4, padx=5, pady=5)
 
 
 tk.Label(revise_group,)
