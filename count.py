@@ -27,6 +27,7 @@ database.execute('''CREATE TABLE IF NOT EXISTS count (
         total_believer INTEGER,
         total_seeker INTEGER,
         total INTEGER
+        remarks TEXT DEFAULT ''
     )
 ''')
 
@@ -60,21 +61,26 @@ reunion_time = ["上午","下午","晚上"]
 
 labels = [
     "日期(西元年/月/日)", "星期" , "聚會類別" ,"時間段" , "主題" , "讚美詩1" , "讚美詩2"
-    ,"主領", "翻譯", "弟兄人數", "姊妹人數" ,"慕道者(男)" , "慕道者(女)", "主內總人數" ,"慕道者總人數" , "總人數"
+    ,"主領", "翻譯", "弟兄人數", "姊妹人數" ,"慕道者(男)" , "慕道者(女)", "主內總人數" ,"慕道者總人數" , "總人數" , "備註"
 ]
 
 entries = []
 
-for i , label_text in enumerate(labels):
+# 在現有的輸入欄位循環中修改，添加備註的特殊處理
+for i, label_text in enumerate(labels):
     frame = tk.Frame(input_group)
-    frame.pack(fill="x", pady = 5)
+    frame.pack(fill="x", pady=5)
 
-    lbl = tk.Label(frame, text=label_text,width=15, anchor="w")
+    lbl = tk.Label(frame, text=label_text, width=15, anchor="w")
     lbl.pack(side="left")
 
-    if label_text == "日期(西元年/月/日)":
+    if label_text == "備註":
+        # 為備註建立多行文本框
+        entry = tk.Text(frame, height=4, width=50)
+        entry.pack(side="left", fill="x", expand=True)
+    elif label_text == "日期(西元年/月/日)":
         entry = tk.Entry(frame)
-        entry.pack(side="left",fill ="x", expand=True)
+        entry.pack(side="left", fill="x", expand=True)
     elif label_text == "聚會類別" :
         entry = ttk.Combobox(frame , values=reunion_type)
         entry.pack(side="left", fill="x", expand=True)
@@ -149,7 +155,15 @@ entries[12].bind("<KeyRelease>", calculate_total)
 generate_week()
 
 def save_record():
-    data = [entry.get() if isinstance(entry, tk.Entry) else entry.get() for entry in entries]
+    # 獲取所有輸入值，特別處理Text控件
+    data = []
+    for entry in entries:
+        if isinstance(entry, tk.Text):
+            data.append(entry.get("1.0", tk.END).strip())
+        elif isinstance(entry, tk.Entry):
+            data.append(entry.get())
+        else:  # Combobox
+            data.append(entry.get())
 
     required_fields = [0,2,3,9,10,11,12,13,14,15]
     if any(not data[i] for i in required_fields):
@@ -181,8 +195,11 @@ def save_record():
 
     messagebox.showinfo("成功", "聚會記錄已保存")
 
+    # 清空欄位
     for entry in entries:
-        if isinstance(entry, tk.Entry):
+        if isinstance(entry, tk.Text):
+            entry.delete("1.0", tk.END)
+        elif isinstance(entry, tk.Entry):
             entry.delete(0, tk.END)
         elif isinstance(entry, ttk.Combobox):
             entry.set('')  # 對 Combobox 正確清空方法
@@ -190,8 +207,8 @@ def save_record():
 def store_data(data):
     database.execute('''
         INSERT INTO count (date, meeting_type, time_period, week, topic, hymn1, hymn2, leader, translator,
-        brother, sister, male_seeker, female_seeker, total_believer, total_seeker, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        brother, sister, male_seeker, female_seeker, total_believer, total_seeker, total, remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', data)
     conn.commit()
 
@@ -291,7 +308,12 @@ result_tree= ttk.Treeview(result_group, columns=columns, show="headings", height
 
 for col in columns:
     result_tree.heading(col, text=col)
-    result_tree.column(col, width=80)
+    # 針對人數欄位設置靠右對齊
+    if col in ["弟兄人數", "姊妹人數", "慕道者(男)", "慕道者(女)", "主內總人數", "慕道者總人數", "總人數"]:
+        result_tree.column(col, width=80, anchor="e")  # 'e' 代表 east (靠右)
+    else:
+        result_tree.column(col, width=80)
+
 
 result_tree.pack(fill="both", expand=True)
 
@@ -438,7 +460,7 @@ def calculate_stats(results):
         avg_sisters = combined_stats["sisters"] / combined_stats["count"]
         avg_total_believers = combined_stats["total_believers"] / combined_stats["count"]
         avg_total_seekers = combined_stats["total_seekers"] / combined_stats["count"]
-        avg_total = combined_stats["total"] / combined_stats["count"]  # 這行原本缺少了
+        avg_total = combined_stats["total"] / combined_stats["count"]
 
         selected_types_str = ", ".join(selected_types)
         stats_text += f"【已勾選聚會類別】({selected_types_str}) 合併統計 :\n"
@@ -500,15 +522,18 @@ revise_date_entry.grid(row=0, column=1, padx=5, pady=5)
 
 revise_entries = []
 
-for i , label_text in enumerate(labels):
+
+for i, label_text in enumerate(labels):
     frame = tk.Frame(revise_group)
-    frame.grid(row=(i // 2) + 1, column=(i % 2) * 2, columnspan=2, sticky="w", padx=5, pady=3 )
+    frame.grid(row=(i // 2) + 1, column=(i % 2) * 2, columnspan=2, sticky="w", padx=5, pady=3)
 
     lbl = tk.Label(frame, text=label_text, width=15, anchor="w")
     lbl.pack(side="left")
 
-    if label_text == "聚會類別":
-        entry = ttk.Combobox(frame , values=reunion_type)
+    if label_text == "備註":
+        entry = tk.Text(frame, height=4, width=50)
+    elif label_text == "聚會類別":
+        entry = ttk.Combobox(frame, values=reunion_type)
     elif label_text == "時間段":
         entry = ttk.Combobox(frame, values=reunion_time)
     else:
@@ -535,10 +560,15 @@ def load_record():
         messagebox.showerror("錯誤", "沒有找到該日期的聚會記錄")
         return
 
-    for i in range(16):
-        if i < len(revise_entries):
+    for i in range(len(revise_entries)):
+        if isinstance(revise_entries[i], tk.Text):
+            revise_entries[i].delete("1.0", tk.END)
+            if i == 16:  # 備註欄位
+                revise_entries[i].insert("1.0", record[17] if record[17] else "")
+        else:  # Entry 或 Combobox
             revise_entries[i].delete(0, tk.END)
-            revise_entries[i].insert(0, record[i + 1])
+            if i < len(record) - 1:  # 確保索引有效
+                revise_entries[i].insert(0, record[i + 1] if record[i + 1] else "")
 
 load_button = tk.Button(revise_group, text="載入記錄", command=load_record)
 load_button.grid(row=0, column=2, padx=5, pady=5)
@@ -554,7 +584,12 @@ def update_record():
         messagebox.showerror("錯誤", "日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
         return
 
-    new_data = [entry.get() for entry in revise_entries]
+    new_data = []
+    for entry in revise_entries:
+        if isinstance(entry, tk.Text):
+            new_data.append(entry.get("1.0", tk.END).strip())
+        else:  # Entry 或 Combobox
+            new_data.append(entry.get())
 
     for idx in [0,2,3,9,10,11,12,13,14,15]:
         if not new_data[idx]:
@@ -572,7 +607,7 @@ def update_record():
     date = ?,  meeting_type=?, time_period=?, week=?, topic=?,
         hymn1=?, hymn2=?, leader=?, translator=?,
         brother=?, sister=?, male_seeker=?, female_seeker=?,
-        total_believer=?, total_seeker=?, total=?
+        total_believer=?, total_seeker=?, total=?, remarks=?
         WHERE date=? '''
 
     database.execute(sql, (*new_data, parsed_date))
