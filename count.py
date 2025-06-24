@@ -158,7 +158,7 @@ def save_record():
 
     date_str = data[0].strip()
 
-#檢查日期
+
     try:
         try:
             data_object = datetime.datetime.strptime(date_str, "%Y-%m-%d")
@@ -169,7 +169,7 @@ def save_record():
         messagebox.showerror("錯誤", "日期格式錯誤，請使用西元年/月/日格式")
         return
 
-#檢查人數
+
     try:
         for i in [9, 10, 11, 12, 13, 14, 15]:
             data[i] = int(data[i]) if data[i].isdigit() else 0
@@ -195,6 +195,39 @@ def store_data(data):
     ''', data)
     conn.commit()
 
+
+    database.execute("SELECT last_insert_rowid()")
+    last_id = database.fetchone()[0]
+
+    auto_fix_record(last_id)
+
+def auto_fix_record(record_id):
+    """自動修正單筆資料的欄位錯誤問題"""
+    try:
+
+        database.execute("SELECT * FROM count WHERE id = ?", (record_id,))
+        record = database.fetchone()
+
+        if not record:
+            return
+
+        meeting_type = record[2]
+        if meeting_type in ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]:
+            week = meeting_type       # 目前存在meeting_type欄位的星期值
+            meeting_type = record[3]  # 目前存在time_period欄位的聚會類別
+
+            # 修正資料結構
+            database.execute("""
+                UPDATE count
+                SET meeting_type = ?,
+                    time_period = ?,
+                    week = ?
+                WHERE id = ?
+            """, (meeting_type, "晚上", week, record_id))
+
+            conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
 
 btn_frame = tk.Frame(input_tab)
 btn_frame.pack(fill="x",pady=10)
@@ -278,93 +311,83 @@ stats_text_widget = tk.Text(stats_text_frame, height=8, yscrollcommand=stats_scr
 stats_text_widget.pack(side="left", fill="both", expand=True)
 stats_scrollbar.config(command=stats_text_widget.yview)
 
-def search_records():
+def search_record(use_filters=True):
     result_tree.delete(*result_tree.get_children())
 
-    condition = []
+    query = "SELECT * FROM count WHERE 1=1"
     params = []
 
-    # 處理日期範圍
-    if start_date.get().strip():
-        try:
+    if use_filters:
+
+        start = start_date.get().strip()
+        end = end_date.get().strip()
+
+        if start:
             try:
-                start = datetime.datetime.strptime(start_date.get().strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+                try:
+                    parsed_date = datetime.datetime.strptime(start, "%Y-%m-%d").strftime("%Y-%m-%d")
+                except ValueError:
+                    parsed_date = datetime.datetime.strptime(start, "%Y/%m/%d").strftime("%Y-%m-%d")
+                query += " AND date >= ?"
+                params.append(parsed_date)
             except ValueError:
+                messagebox.showerror("錯誤", "起始日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
+                return
 
-                start = datetime.datetime.strptime(start_date.get().strip(), "%Y/%m/%d").strftime("%Y-%m-%d")
-
-            condition.append("date >= ?")
-            params.append(start)
-        except ValueError:
-            messagebox.showerror("錯誤", "起始日期格式錯誤")
-            return
-
-    if end_date.get().strip():
-        try:
+        if end:
             try:
-                end = datetime.datetime.strptime(end_date.get().strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+                try:
+                    parsed_date = datetime.datetime.strptime(end, "%Y-%m-%d").strftime("%Y-%m-%d")
+                except ValueError:
+                    parsed_date = datetime.datetime.strptime(end, "%Y/%m/%d").strftime("%Y-%m-%d")
+                query += " AND date <= ?"
+                params.append(parsed_date)
             except ValueError:
-                end = datetime.datetime.strptime(end_date.get().strip(), "%Y/%m/%d").strftime("%Y-%m-%d")
+                messagebox.showerror("錯誤", "結束日期格式錯誤，請使用 YYYY-MM-DD 或 YYYY/MM/DD")
+                return
 
-            condition.append("date <= ?")
-            params.append(end)
-        except ValueError:
-            messagebox.showerror("錯誤", "結束日期格式錯誤")
-            return
+        # 處理聚會類別
+        selected_types = [typ for typ, var in query_type_vars.items() if var.get()]
+        if selected_types:
+            placeholders = ", ".join("?" for _ in selected_types)
+            query += f" AND meeting_type IN ({placeholders})"
+            params.extend(selected_types)
 
-    # 處理聚會類別複選框
-    selected_types = [type_name for type_name, var in query_type_vars.items() if var.get()]
-    if selected_types:
-        placeholders = ", ".join(["?" for _ in selected_types])
-        condition.append(f"meeting_type IN ({placeholders})")
-        params.extend(selected_types)
+        # 處理時間段
+        selected_time = query_reunion_time.get()
+        if selected_time:
+            query += " AND time_period = ?"
+            params.append(selected_time)
 
-    # 處理時間段
-    if query_reunion_time.get():
-        condition.append("time_period = ?")
-        params.append(query_reunion_time.get())
-
-    # 建構完整查詢
-    sql = "SELECT * FROM count"
-    if condition:
-        sql += " WHERE " + " AND ".join(condition)
-    sql += " ORDER BY date"
+    query += " ORDER BY date"
 
     try:
-        database.execute(sql, params)
+
+
+        database.execute(query, params)
         records = database.fetchall()
 
         if not records:
             messagebox.showinfo("查詢結果", "沒有符合條件的記錄")
-            stats_text_widget.delete(1.0, tk.END)  # 清空統計區域
             return
 
         for record in records:
             values = (
-                record[1],
-                record[4],
-                record[2],
-                record[3],
-                record[8],
-                record[10],
-                record[11],
-                record[12],
-                record[13],
-                record[14],
-                record[15],
-                record[16]
+                record[1], record[4], record[2], record[3], record[8],
+                record[10], record[11], record[12], record[13], record[14],
+                record[15], record[16]
             )
             result_tree.insert("", "end", values=values)
 
-        # 計算統計數據
         stats_text = calculate_stats(records)
-
-        # 更新統計文本區域
         stats_text_widget.delete(1.0, tk.END)
         stats_text_widget.insert(tk.END, stats_text)
 
-    except Exception as e:
-        messagebox.showerror("查詢錯誤", str(e))
+
+
+    except sqlite3.Error as e:
+        messagebox.showerror("資料庫錯誤", f"查詢時發生錯誤: {str(e)}")
+
 
 def calculate_stats(results):
     stats = {}
@@ -412,8 +435,18 @@ def show_stats_window(stats_text):
     stats_text_widget.insert(tk.END, stats_text)
     stats_text_widget.configure(state="disabled")
 
-search_button = tk.Button(query_group, text="查詢", command=search_records)
-search_button.grid(row=2, column=0, columnspan=4, pady=10)
+def clear_results():
+    result_tree.delete(*result_tree.get_children())
+    stats_text_widget.delete(1.0, tk.END)
+
+search_button = tk.Button(query_group, text="搜尋", command=lambda: search_record(True))
+search_button.grid(row=2, column=0, pady=10)
+
+show_all_button = tk.Button(query_group, text="顯示全部記錄", command=lambda: search_record(False))
+show_all_button.grid(row=2, column=1, pady=10)
+
+clear_results_button = tk.Button(query_group, text="清除結果", command=clear_results)
+clear_results_button.grid(row=2, column=2, pady=10)
 
 
 #修改
@@ -505,11 +538,21 @@ def update_record():
     database.execute(sql, (*new_data, parsed_date))
     conn.commit()
 
+    # 獲取更新記錄的ID
+    database.execute("SELECT id FROM count WHERE date = ?", (new_data[0],))
+    record_id = database.fetchone()[0]
+
+    # 自動修復更新的記錄
+    auto_fix_record(record_id)
+
     messagebox.showinfo("成功", "聚會記錄已更新")
 
 update_button = tk.Button(revise_group, text = "更新" , command=update_record)
 update_button.grid(row=0, column=3 , padx=5, pady=5)
 
 
+
 tk.Label(revise_group,)
+
+
 win.mainloop()
